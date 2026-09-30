@@ -1,96 +1,64 @@
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { LayoutDashboard, CreditCard, Settings, LogOut } from "lucide-react";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { PLANS } from "@/lib/plans";
+import { requireUser } from "@/lib/session";
 
-/**
- * Dashboard page — protected, requires authentication.
- * Fetches user and subscription data from Supabase.
- */
+export const metadata: Metadata = { title: "Dashboard" };
+
+/** Dashboard overview — protected by middleware and the dashboard layout. */
 export default async function DashboardPage() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user, entitlement } = await requireUser();
+  const name = (user.user_metadata?.full_name as string | undefined) || user.email;
 
-  if (!user) redirect("/login");
+  const statusLabel = entitlement.active
+    ? entitlement.cancelsAtPeriodEnd || entitlement.status === "canceled"
+      ? "Canceling"
+      : entitlement.status === "trialing"
+        ? "Trial"
+        : "Active"
+    : entitlement.status === "past_due"
+      ? "Payment due"
+      : "Inactive";
 
-  const { data: subscription } = await supabase
-    .from("subscriptions")
-    .select("status, current_period_end")
-    .eq("user_id", user.id)
-    .single();
-
-  const isActive = subscription?.status === "active";
+  const stats = [
+    { label: "Plan", value: entitlement.planName, color: entitlement.active ? "text-blue-400" : "text-gray-400" },
+    { label: "Status", value: statusLabel, color: entitlement.active ? "text-green-400" : "text-yellow-400" },
+    {
+      label: entitlement.cancelsAtPeriodEnd || entitlement.status === "canceled" ? "Access until" : "Renewal",
+      value: entitlement.active && entitlement.renewsOn ? new Date(entitlement.renewsOn).toLocaleDateString() : "—",
+      color: "text-white",
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-gray-950 flex">
-      {/* Sidebar */}
-      <aside className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
-        <div className="px-6 py-5 border-b border-gray-800">
-          <span className="text-lg font-bold text-blue-400">⚡ SaaSKit</span>
-        </div>
-        <nav className="flex-1 px-4 py-6 space-y-1">
-          {[
-            { icon: LayoutDashboard, label: "Overview", href: "/dashboard" },
-            { icon: CreditCard, label: "Billing", href: "/dashboard/billing" },
-            { icon: Settings, label: "Settings", href: "/dashboard/settings" },
-          ].map(({ icon: Icon, label, href }) => (
-            <a key={label} href={href}
-               className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 text-sm transition">
-              <Icon size={16} />
-              {label}
-            </a>
-          ))}
-        </nav>
-        <div className="px-4 pb-6">
-          <form action="/auth/signout" method="post">
-            <button className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg text-gray-400 hover:text-red-400 hover:bg-gray-800 text-sm transition">
-              <LogOut size={16} />
-              Sign out
-            </button>
-          </form>
-        </div>
-      </aside>
+    <>
+      <h1 className="mb-2 text-2xl font-bold text-white">Dashboard</h1>
+      <p className="mb-8 text-sm text-gray-400">Welcome back, {name}</p>
 
-      {/* Main */}
-      <main className="flex-1 p-8">
-        <div className="max-w-4xl">
-          <h1 className="text-2xl font-bold text-white mb-2">Dashboard</h1>
-          <p className="text-gray-400 text-sm mb-8">Welcome back, {user.email}</p>
-
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-4 mb-8">
-            {[
-              { label: "Plan", value: isActive ? "Pro" : "Free", color: isActive ? "text-blue-400" : "text-gray-400" },
-              { label: "Status", value: isActive ? "Active" : "Inactive", color: isActive ? "text-green-400" : "text-yellow-400" },
-              {
-                label: "Renewal",
-                value: subscription?.current_period_end
-                  ? new Date(subscription.current_period_end).toLocaleDateString()
-                  : "—",
-                color: "text-white"
-              },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">{label}</p>
-                <p className={`text-xl font-bold ${color}`}>{value}</p>
-              </div>
-            ))}
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {stats.map(({ label, value, color }) => (
+          <div key={label} className="rounded-xl border border-gray-800 bg-gray-900 p-5">
+            <p className="mb-2 text-xs uppercase tracking-wider text-gray-500">{label}</p>
+            <p className={`text-xl font-bold ${color}`}>{value}</p>
           </div>
+        ))}
+      </div>
 
-          {/* Upgrade CTA */}
-          {!isActive && (
-            <div className="bg-blue-950/40 border border-blue-800 rounded-xl p-6 flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-white mb-1">Upgrade to Pro</p>
-                <p className="text-sm text-gray-400">Unlock all features — $29/month</p>
-              </div>
-              <a href="/dashboard/billing"
-                 className="bg-blue-500 hover:bg-blue-400 text-white px-5 py-2.5 rounded-lg text-sm font-semibold transition">
-                Upgrade now
-              </a>
-            </div>
-          )}
+      {entitlement.status === "past_due" && (
+        <div className="alert-error mb-6">
+          Your last payment failed. <Link href="/dashboard/billing" className="underline">Update your payment method</Link> to keep access.
         </div>
-      </main>
-    </div>
+      )}
+
+      {!entitlement.active && (
+        <div className="flex flex-col gap-4 rounded-xl border border-blue-800 bg-blue-950/40 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="mb-1 font-semibold text-white">Upgrade to {PLANS.PRO.name}</p>
+            <p className="text-sm text-gray-400">Unlock all features — ${PLANS.PRO.price}/month</p>
+          </div>
+          <Link href="/dashboard/billing?plan=PRO" className="btn-primary">Upgrade now</Link>
+        </div>
+      )}
+    </>
   );
 }

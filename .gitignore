@@ -1,5 +1,10 @@
 .env
-.env.local
+.env*.local
 node_modules/
 .next/
+out/
+next-env.d.ts
+*.tsbuildinfo
 *.log
+.DS_Store
+.vercel

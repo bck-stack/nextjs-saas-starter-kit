@@ -1,67 +1,52 @@
+import "server-only";
 import Stripe from "stripe";
 
-/**
- * Singleton Stripe client instance.
- * Uses API version pinned for stability.
- */
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20",
-  typescript: true,
-});
+export { PLANS, planFromPriceId, type PlanKey } from "./plans";
 
-/** Price IDs from your Stripe dashboard */
-export const PLANS = {
-  STARTER: {
-    priceId: process.env.STRIPE_STARTER_PRICE_ID!,
-    name: "Starter",
-    price: 9,
-    features: ["Up to 5 projects", "10GB storage", "Email support"],
-  },
-  PRO: {
-    priceId: process.env.STRIPE_PRO_PRICE_ID!,
-    name: "Pro",
-    price: 29,
-    features: ["Unlimited projects", "100GB storage", "Priority support", "API access"],
-  },
-} as const;
-
-export type PlanKey = keyof typeof PLANS;
+let client: Stripe | null = null;
 
 /**
- * Create a Stripe Checkout session for a subscription.
+ * Lazily created Stripe client — the app still builds and renders public pages
+ * when STRIPE_SECRET_KEY is not configured yet.
  */
-export async function createCheckoutSession(
-  priceId: string,
-  userId: string,
-  userEmail: string,
-  successUrl: string,
-  cancelUrl: string
-): Promise<string> {
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    line_items: [{ price: priceId, quantity: 1 }],
-    customer_email: userEmail,
-    metadata: { userId },
-    success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: cancelUrl,
-    subscription_data: {
-      metadata: { userId },
-    },
-  });
-
-  return session.url!;
+export function getStripe(): Stripe {
+  if (!client) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) throw new Error("STRIPE_SECRET_KEY is not set.");
+    client = new Stripe(key, { apiVersion: "2024-06-20", typescript: true, appInfo: { name: "nextjs-saas-starter-kit" } });
+  }
+  return client;
 }
 
 /**
- * Create a Stripe Customer Portal session for subscription management.
+ * Create a Stripe Checkout session for a subscription.
+ * Re-uses the Stripe customer when the user already has one (no duplicate customers).
  */
-export async function createPortalSession(
-  customerId: string,
-  returnUrl: string
-): Promise<string> {
-  const session = await stripe.billingPortal.sessions.create({
-    customer: customerId,
-    return_url: returnUrl,
+export async function createCheckoutSession(opts: {
+  priceId: string;
+  userId: string;
+  userEmail: string;
+  customerId?: string | null;
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<string> {
+  const session = await getStripe().checkout.sessions.create({
+    mode: "subscription",
+    line_items: [{ price: opts.priceId, quantity: 1 }],
+    ...(opts.customerId ? { customer: opts.customerId } : { customer_email: opts.userEmail }),
+    client_reference_id: opts.userId,
+    metadata: { userId: opts.userId },
+    subscription_data: { metadata: { userId: opts.userId } },
+    allow_promotion_codes: true,
+    success_url: `${opts.successUrl}?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: opts.cancelUrl,
   });
+  if (!session.url) throw new Error("Stripe did not return a checkout URL.");
+  return session.url;
+}
+
+/** Create a Stripe Customer Portal session for subscription management. */
+export async function createPortalSession(customerId: string, returnUrl: string): Promise<string> {
+  const session = await getStripe().billingPortal.sessions.create({ customer: customerId, return_url: returnUrl });
   return session.url;
 }

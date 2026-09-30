@@ -1,27 +1,31 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
-import { PLANS } from "@/lib/stripe";
 import { Check } from "lucide-react";
+import { PLANS } from "@/lib/plans";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
 
 /**
- * Landing page — shows hero section and pricing plans.
- * Redirects authenticated users to dashboard.
+ * Landing page — hero section and pricing plans.
+ * Signed-in users see a Dashboard link instead of sign-up buttons.
  */
 export default async function HomePage() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  let user = null;
+  if (isSupabaseConfigured()) {
+    const supabase = createClient();
+    ({ data: { user } } = await supabase.auth.getUser());
+  }
 
   return (
     <main className="min-h-screen bg-gray-950 text-white">
       {/* Nav */}
-      <nav className="flex items-center justify-between px-8 py-5 border-b border-gray-800">
+      <nav className="flex items-center justify-between border-b border-gray-800 px-6 py-5 sm:px-8">
         <span className="text-xl font-bold text-blue-400">⚡ SaaSKit</span>
-        <div className="flex gap-4 items-center">
+        <div className="flex items-center gap-4">
+          <a href="#pricing" className="hidden text-sm text-gray-400 transition hover:text-white sm:inline">Pricing</a>
           {user ? (
             <Link href="/dashboard" className="btn-primary">Dashboard</Link>
           ) : (
             <>
-              <Link href="/login" className="text-gray-400 hover:text-white text-sm transition">Sign in</Link>
+              <Link href="/login" className="text-sm text-gray-400 transition hover:text-white">Sign in</Link>
               <Link href="/signup" className="btn-primary">Get started</Link>
             </>
           )}
@@ -29,58 +33,68 @@ export default async function HomePage() {
       </nav>
 
       {/* Hero */}
-      <section className="text-center py-24 px-6">
-        <h1 className="text-5xl font-extrabold mb-6 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+      <section className="px-6 py-24 text-center">
+        <h1 className="mb-6 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-4xl font-extrabold text-transparent sm:text-5xl">
           Ship your SaaS faster
         </h1>
-        <p className="text-gray-400 text-lg max-w-xl mx-auto mb-10">
+        <p className="mx-auto mb-10 max-w-xl text-lg text-gray-400">
           Next.js 14 boilerplate with Supabase auth, Stripe subscriptions, and a ready-to-go dashboard.
           Clone and launch in hours, not weeks.
         </p>
-        <div className="flex gap-4 justify-center">
-          <Link href="/signup" className="btn-primary px-8 py-3 text-base">Start for free</Link>
-          <a href="https://github.com/bck-stack/nextjs-saas-boilerplate"
-             className="btn-secondary px-8 py-3 text-base" target="_blank" rel="noopener noreferrer">
+        <div className="flex flex-col justify-center gap-4 sm:flex-row">
+          <Link href={user ? "/dashboard" : "/signup"} className="btn-primary px-8 py-3 text-base">
+            {user ? "Open dashboard" : "Start for free"}
+          </Link>
+          <a
+            href="https://github.com/bck-stack/nextjs-saas-starter-kit"
+            className="btn-secondary px-8 py-3 text-base"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             View on GitHub
           </a>
         </div>
       </section>
 
       {/* Pricing */}
-      <section className="py-20 px-6" id="pricing">
-        <h2 className="text-3xl font-bold text-center mb-4">Simple pricing</h2>
-        <p className="text-gray-400 text-center mb-12">No hidden fees. Cancel anytime.</p>
-        <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+      <section className="px-6 py-20" id="pricing">
+        <h2 className="mb-4 text-center text-3xl font-bold">Simple pricing</h2>
+        <p className="mb-12 text-center text-gray-400">No hidden fees. Cancel anytime.</p>
+        <div className="mx-auto grid max-w-3xl gap-6 md:grid-cols-2">
           {Object.values(PLANS).map((plan) => (
-            <div key={plan.name} className={`rounded-2xl p-8 border ${
-              plan.name === "Pro"
-                ? "border-blue-500 bg-blue-950/30"
-                : "border-gray-700 bg-gray-900"
-            }`}>
-              <h3 className="text-xl font-bold mb-2">{plan.name}</h3>
-              <div className="text-4xl font-extrabold mb-6">
-                ${plan.price}<span className="text-base font-normal text-gray-400">/mo</span>
+            <div
+              key={plan.key}
+              className={`rounded-2xl border p-8 ${plan.highlighted ? "border-blue-500 bg-blue-950/30" : "border-gray-700 bg-gray-900"}`}
+            >
+              <h3 className="mb-2 text-xl font-bold">{plan.name}</h3>
+              <div className="mb-6 text-4xl font-extrabold">
+                ${plan.price}
+                <span className="text-base font-normal text-gray-400">/mo</span>
               </div>
-              <ul className="space-y-3 mb-8">
+              <ul className="mb-8 space-y-3">
                 {plan.features.map((f) => (
                   <li key={f} className="flex items-center gap-2 text-sm text-gray-300">
-                    <Check size={16} className="text-green-400 shrink-0" />
+                    <Check size={16} className="shrink-0 text-green-400" />
                     {f}
                   </li>
                 ))}
               </ul>
-              <Link href={user ? "/dashboard/billing" : "/signup"}
-                    className={`block text-center py-2.5 rounded-lg font-semibold text-sm transition ${
-                      plan.name === "Pro"
-                        ? "bg-blue-500 hover:bg-blue-400 text-white"
-                        : "bg-gray-700 hover:bg-gray-600 text-white"
-                    }`}>
+              <Link
+                href={user ? `/dashboard/billing?plan=${plan.key}` : `/signup?plan=${plan.key}`}
+                className={`block rounded-lg py-2.5 text-center text-sm font-semibold transition ${
+                  plan.highlighted ? "bg-blue-500 text-white hover:bg-blue-400" : "bg-gray-700 text-white hover:bg-gray-600"
+                }`}
+              >
                 Get {plan.name}
               </Link>
             </div>
           ))}
         </div>
       </section>
+
+      <footer className="border-t border-gray-800 px-6 py-8 text-center text-sm text-gray-500">
+        © {new Date().getFullYear()} SaaSKit. Built with Next.js, Supabase and Stripe.
+      </footer>
     </main>
   );
 }
